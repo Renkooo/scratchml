@@ -137,33 +137,59 @@ class OneHotEncoder(BaseEncoder):
 
     def __init__(
         self,
-        categories: Union[str, List] = "auto",
-        drop: str = None,
-        sparse_output: bool = True,
-        dtype: Any = np.float64,
-        handle_unknown: str = "error",
-        min_frequency: Union[int, float] = None,
-        max_categories: int = None,
-        feature_name_combiner: Union[str, callable] = "concat",
+        categories="auto",
+        drop=None,
+        sparse=True,
+        dtype=np.float64,
+        handle_unknown="error",
+        min_frequency=None,
+        max_categories=None
     ) -> None:
         """
-        Creates a OneHotEncoder's instance.
+        Initialize OneHotEncoder.
+
+        Args:
+            categories (str or list): Categories for each feature. Default is "auto".
+            drop (str or list): Specifies a methodology to drop one of the categories per feature. Default is None.
+            sparse (bool): Whether to return a sparse matrix. Default is True.
+            dtype: Data type of the returned array. Default is np.float64.
+            handle_unknown (str): Specify the way to handle unknown categories. Default is "error".
+            min_frequency (int or float): Minimum frequency for a category to be considered. Default is None.
+            max_categories (int): Maximum number of categories per feature. Default is None.
         """
         self.categories_ = categories
         self.drop_ = drop
-        self.sparse_output_ = sparse_output
+        self.sparse_output_ = sparse  # Changed from sparse to sparse_output to match sklearn
         self.dtype_ = dtype
         self.handle_unknown_ = handle_unknown
         self.min_frequency_ = min_frequency
         self.max_categories_ = max_categories
-        self.feature_name_combiner = feature_name_combiner
+        
+        # Initialize other attributes
         self.n_features_in_ = None
         self.infrequent_categories_ = None
         self.drop_idx_ = None
-        self.categories_map_ = None
-        self.infrequents = None
+        self.categories_map_ = {}  # Initialize as empty dict
+        self.infrequents = {}  # Initialize as empty dict
+        
+        # Validation lists
         self._valid_handle_unknown = ["error", "ignore", "infrequent_if_exist"]
         self._valid_drop = ["first", "if_binary"]
+        
+        # Validate parameters
+        if handle_unknown not in self._valid_handle_unknown:
+            raise ValueError(f"handle_unknown must be one of {self._valid_handle_unknown}")
+            
+        if drop is not None and drop not in self._valid_drop:
+            if not isinstance(drop, (list, np.ndarray)):
+                raise ValueError(f"drop must be one of {self._valid_drop} or array-like")
+                
+        if min_frequency is not None:
+            if isinstance(min_frequency, (int, float)):
+                if min_frequency <= 0:
+                    raise ValueError("min_frequency must be positive")
+            else:
+                raise ValueError("min_frequency must be int or float")
 
     def fit(self, *args: np.ndarray) -> None:
         """
@@ -178,6 +204,9 @@ class OneHotEncoder(BaseEncoder):
         X = convert_array_numpy(args[0])
         self.n_features_in_ = X.shape[1]
         self.drop_idx_ = np.empty(self.n_features_in_, dtype=object)
+        
+        # Initialize infrequents dict
+        self.infrequents = {i: [] for i in range(self.n_features_in_)}
 
         _ordered_categories = []
 
@@ -406,71 +435,44 @@ class OneHotEncoder(BaseEncoder):
 
     def _feature_transformation(self, X: np.ndarray) -> Tuple[np.ndarray, List[Tuple]]:
         """
-        Auxiliary function to encode the features and that is used
-        during the fitting.
-
-        Args:
-            X (np.ndarray): the features array
-
-        Returns:
-            Tuple[np.ndarray, List[Tuple]]: the transformed features
-                array and the features mapping, respectively.
+        Auxiliary function to encode the features.
         """
         new_X = []
         features_mapping = []
         count = 0
 
         for i in range(self.n_features_in_):
-            # getting the features (keys) and its categories (values)
             features_values = list(self.categories_map_[i].values())
             features_keys = list(self.categories_map_[i].keys())
-
-            # detecting the number of categories within the features
             n_values = np.max(features_values) + 1
             encoded_features = []
             is_binary = n_values == 2
 
-            # mapping the features information (this will be used in the
-            # drop indexes function)
-            # e.g.: [(0, True, 'Male', 0), (0, True, 'Female', 1)]
-            #         ^    ^      ^    ^
-            #    feature binary cate-  position in the
-            #     index  or not  gory   new encoded array
             for ck in features_keys:
                 features_mapping.append((i, is_binary, ck, count))
                 count += 1
 
             for v in X[:, i]:
                 if self.handle_unknown_ == "ignore":
-                    try:
-                        _X = np.array([self.categories_map_[i][v]])
-                        encoded_features.append(np.eye(n_values)[_X])
-                    except KeyError:
-                        # creating an array filled with zeros
+                    if v not in self.categories_map_[i]:
                         encoded_features.append(np.zeros(n_values))
+                        continue
                 elif self.handle_unknown_ == "infrequent_if_exist":
-                    # creating an array full of zeros where
-                    # the last position if filled with 1
-                    if (v in self.infrequents[i]) or (
-                        v not in self.categories_map_[i].keys()
-                    ):
-                        _X = np.array([self.categories_map_[i]["infrequent"]])
-                    else:
-                        _X = np.array([self.categories_map_[i][v]])
+                    if v not in self.categories_map_[i]:
+                        if "infrequent" in self.categories_map_[i]:
+                            v = "infrequent"
+                        else:
+                            encoded_features.append(np.zeros(n_values))
+                            continue
+                elif v not in self.categories_map_[i]:
+                    raise ValueError(f"Found unknown category {v} in column {i}")
 
-                    encoded_features.append(np.eye(n_values)[_X])
-                elif self.handle_unknown_ == "error":
-                    try:
-                        _X = np.array([self.categories_map_[i][v]])
-                        encoded_features.append(np.eye(n_values)[_X])
-                    except KeyError as error:
-                        raise error
+                _X = np.array([self.categories_map_[i][v]])
+                encoded_features.append(np.eye(n_values)[_X])
 
             new_X.append(np.vstack(encoded_features))
 
-        # stacking the encoded features matrixes
-        new_X = np.hstack(new_X)
-        return new_X, features_mapping
+        return np.hstack(new_X), features_mapping
 
     def _drop_indexes(self, X: np.ndarray, features_mapping: List[Tuple]) -> np.ndarray:
         """
@@ -579,63 +581,26 @@ class OneHotEncoder(BaseEncoder):
             raise RuntimeError("Only the features array is expected.\n")
 
         X = convert_array_numpy(args[0])
+        
+        # Initialize output array
+        n_samples = X.shape[0]
+        output = np.empty((n_samples, self.n_features_in_), dtype=object)
+        
+        feature_start = 0
+        for feature_idx in range(self.n_features_in_):
+            # Get number of categories for this feature
+            n_cats = len(self.categories_map_[feature_idx])
+            
+            # Get the slice of X for this feature
+            Xfeat = X[:, feature_start:feature_start + n_cats]
+            
+            # Get indices of 1s
+            categorical_idx = np.argmax(Xfeat, axis=1)
+            
+            # Map back to original categories
+            inv_map = {v: k for k, v in self.categories_map_[feature_idx].items()}
+            output[:, feature_idx] = [inv_map.get(idx, None) for idx in categorical_idx]
+            
+            feature_start += n_cats
 
-        # FIXME: Think in a better way for validation the shape of array.
-        # The commented code bellow only works when drop == None.
-
-        # checking the shape of the array
-        # try:
-        #     count = 0
-
-        #     for (k, v) in self.categories_map_.items():
-        #         for _ in self.categories_map_[k].keys():
-        #             count += 1
-
-        #     assert X.shape[1] == count
-
-        # except AssertionError:
-        #     raise ArithmeticError("Array's shape is different from what is expected.\n")
-
-        inreverse_mapping = {}
-        count = 0
-        Xt = []
-
-        # creating an inverse mapping of the features
-        # and its categories
-        for k, v in self.categories_map_.items():
-            _features_categories = {}
-
-            for j in v.keys():
-                _features_categories[count] = j
-                count += 1
-
-            inreverse_mapping[k] = _features_categories
-
-        for i in range(X.shape[0]):
-            if self.handle_unknown_ == "ignore":
-                converted = np.array([None] * self.n_features_in_)
-            elif self.handle_unknown_ == "infrequent_if_exist":
-                converted = np.array(["infrequent"] * self.n_features_in_)
-
-            # checking which position the hot encoded is at for the given
-            # feature and mapping it back to the original value
-            hot_encoded = np.argwhere(X[i, :] == 1)
-            hot_encoded = hot_encoded.reshape(-1)
-            converted = []
-
-            for k, v in inreverse_mapping.items():
-                indexes = list(v.keys())
-                encoded_index = list(set(indexes) & set(hot_encoded))
-
-                if len(encoded_index) == 0:
-                    if self.handle_unknown_ == "error":
-                        raise KeyError("Value not found during the model training.\n")
-
-                    continue
-
-                converted[k] = inreverse_mapping[k][encoded_index[0]]
-
-            Xt.append(converted)
-
-        Xt = np.asarray(Xt, dtype="O")
-        return Xt
+        return output

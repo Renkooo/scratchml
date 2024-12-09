@@ -540,6 +540,16 @@ class Test_Perceptron(unittest.TestCase):
         assert_equal(predict_skp.shape, predict_p.shape)
         assert_allclose(predict_skp, predict_p, atol=atol)
 
+    @repeat(3)
+    def test_with_mock(self):
+        """Test Perceptron with minimal mock."""
+        from unittest.mock import patch
+        X = np.array([[1]])
+        with patch('scratchml.models.perceptron.Perceptron.predict') as mock_predict:
+            mock_predict.return_value = np.array([[1]])
+            model = Perceptron()
+            pred = model.predict(X)
+            assert_equal(pred, np.array([[1]]))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

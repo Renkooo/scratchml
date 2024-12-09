@@ -40,26 +40,19 @@ def relu(x: np.ndarray, derivative: bool = False) -> np.ndarray:
 
 
 def elu(
-    x: np.ndarray, derivative: bool = False, epsilon: np.float32 = 1e-9
+    x: np.ndarray, 
+    derivative: bool = False, 
+    epsilon: np.float32 = 1e-9
 ) -> np.ndarray:
     """
-    Applies the ELU activation function.
-
-    Args:
-        x (np.ndarray): the features array.
-        derivative (bool, optional): whether to use the
-            derivative function or not. Defaults to False.
-        epsilon (np.float32): a really small value (called epsilon)
-            used to avoid calculate the log of 0. Defaults to 1e-9.
-
-    Returns:
-        np.ndarray: the output of the ELU function
-            for the given numpy array.
+    Applies the ELU activation function with overflow protection.
     """
     if derivative:
         return np.where(x <= 0, elu(x) + 1.0, 1)
 
-    return np.where(x <= 0, (np.exp(x + epsilon) - 1), x)
+    # Clip extremely negative values to prevent overflow
+    safe_x = np.clip(x, -88.0, None)  # exp(-88) is close to smallest normal float
+    return np.where(x <= 0, (np.exp(safe_x + epsilon) - 1), x)
 
 
 def leaky_relu(x: np.ndarray, derivative: bool = False) -> np.ndarray:

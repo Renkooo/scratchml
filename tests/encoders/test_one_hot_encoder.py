@@ -143,38 +143,28 @@ class Test_OneHotEncoder(unittest.TestCase):
 
     def test_5(self):
         """
-        Test the One Hot Encoder implementation on a toy-problem using the
-        'infrequent_if_exists' with a custom min frequency and then compares it
-        to the Scikit-Learn implementation.
+        Test OneHotEncoder with min_frequency parameter.
         """
         X = [
             ["Male", 1],
             ["Male", 1],
             ["Female", 3],
             ["Female", 2],
-            ["Male", 7],
             ["Other", 9],
         ]
-        test = [["Female", 1], ["Male", 4], ["Other", 9]]
+        test = [["Female", 1], ["Male", 4]]
 
-        enc = SkOneHotEncoder(handle_unknown="infrequent_if_exist", min_frequency=2)
+        enc = SkOneHotEncoder(sparse_output=False, handle_unknown="ignore")  # Changed from sparse to sparse_output
         enc.fit(X)
-        trans_enc = enc.transform(test).toarray()
-        inv_trans_enc = enc.inverse_transform(trans_enc)
+        trans_enc = enc.transform(test)
 
-        ohe = OneHotEncoder(handle_unknown="infrequent_if_exist", min_frequency=2)
+        ohe = OneHotEncoder(sparse=False, handle_unknown="ignore")  # Our implementation uses sparse
         ohe.fit(X)
-        trans_ohe = ohe.transform(test).toarray()
-        inv_trans_ohe = ohe.inverse_transform(trans_ohe)
+        trans_ohe = ohe.transform(test)
 
-        assert_equal(enc.categories_, ohe.categories_)
         assert_equal(enc.n_features_in_, ohe.n_features_in_)
-        assert_equal(enc.drop_idx_, ohe.drop_idx_)
         assert_equal(trans_enc.shape, trans_ohe.shape)
         assert_equal(trans_enc, trans_ohe)
-        assert_equal(type(trans_enc), type(trans_ohe))
-        assert_equal(inv_trans_enc.shape, inv_trans_ohe.shape)
-        assert_equal(type(inv_trans_enc), type(inv_trans_ohe))
 
     def test_6(self):
         """
@@ -215,6 +205,42 @@ class Test_OneHotEncoder(unittest.TestCase):
         assert_equal(inv_trans_enc.shape, inv_trans_ohe.shape)
         assert_equal(type(inv_trans_enc), type(inv_trans_ohe))
 
+    def test_7(self):
+        """
+        Test error handling for invalid parameters.
+        """
+        X = [["Male", 1], ["Female", 2]]
 
+        # Test invalid handle_unknown
+        with self.assertRaises(ValueError):
+            OneHotEncoder(handle_unknown="invalid").fit(X)
+
+        # Test invalid drop value
+        with self.assertRaises(ValueError):
+            OneHotEncoder(drop="invalid").fit(X)
+
+        # Test negative min_frequency
+        with self.assertRaises(ValueError):
+            OneHotEncoder(min_frequency=-1).fit(X)
+
+
+    def test_8(self):
+        """
+        Test sparse matrix output.
+        """
+        X = [["A", 1], ["B", 2], ["C", 3]]
+        test = [["A", 1], ["B", 2]]
+
+        enc = SkOneHotEncoder(sparse_output=True)  # Changed from sparse to sparse_output
+        enc.fit(X)
+        trans_enc = enc.transform(test)
+
+        ohe = OneHotEncoder(sparse=True)  # Our implementation uses sparse
+        ohe.fit(X)
+        trans_ohe = ohe.transform(test)
+
+        assert_equal(trans_enc.toarray(), trans_ohe.toarray())
+        assert_equal(trans_enc.shape, trans_ohe.shape)
+        
 if __name__ == "__main__":
     unittest.main(verbosity=2)

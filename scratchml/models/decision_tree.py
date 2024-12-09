@@ -276,28 +276,30 @@ class DecisionTreeBase(ABC):
         self, X: np.ndarray, y: np.ndarray, threshold: Union[int, float]
     ) -> float:
         """
-        Auxiliary function responsible for calculating the information gain of a split.
+        Calculate information gain of a split while handling edge cases.
 
         Args:
-            X (np.ndarray): the features array.
-            y (np.ndarray): the classes array.
-            threshold (Union[int, float]): the threshold for the split.
+            X (np.ndarray): Features array
+            y (np.ndarray): Target array
+            threshold (Union[int, float]): Split threshold
+
+        Returns:
+            float: Information gain value
         """
-        # creating the left and right children
+        # Create split
         left, right = self._create_split(X=X, threshold=threshold)
 
-        # empty list, so the information gain should be zero
+        # Handle empty splits
         if len(left) == 0 or len(right) == 0:
             return 0
 
         n = len(y)
         n_l, n_r = len(left), len(right)
-        c_parent, c_l, c_r = 0, 0, 0
 
-        # calculating the weighted average information gain of children
+        # Calculate parent and children impurity
         if self.criterion in ["entropy", "log_loss"]:
             c_parent = entropy(y)
-            c_l = entropy(y[left])
+            c_l = entropy(y[left])  
             c_r = entropy(y[right])
         elif self.criterion == "gini":
             c_parent = gini(y)
@@ -316,17 +318,19 @@ class DecisionTreeBase(ABC):
             c_l = absolute_error(np.median(y[left]), y[left])
             c_r = absolute_error(np.median(y[right]), y[right])
 
+        # Calculate weighted impurity
         c_child = (n_l / n) * c_l + (n_r / n) * c_r
         information_gain = c_parent - c_child
-        impurity_decrease = np.NINF
 
-        if n > 0:
-            impurity_decrease = n / (
-                self.n_samples_ * (c_parent - ((n_r / n) * c_r) - ((n_l / n)) * c_l)
+        # Calculate impurity decrease with numerical stability
+        if n > 0 and c_parent > 0:
+            impurity_decrease = (n / self.n_samples_) * (
+                c_parent - ((n_r / n) * c_r) - ((n_l / n) * c_l)
             )
+        else:
+            impurity_decrease = 0
 
-        # checking if the impurity decrease is bigger than
-        # the established minimum value
+        # Check minimum impurity decrease threshold
         if impurity_decrease >= self.min_impurity_decrease:
             return information_gain
 
